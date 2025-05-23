@@ -58,7 +58,7 @@ export function DiagnosisClientPage() {
     } else {
       setImagePreview(null);
     }
-  }
+  };
 
   const onSubmit: SubmitHandler<DiagnosisFormValues> = async (data) => {
     setIsLoading(true);
@@ -97,7 +97,7 @@ export function DiagnosisClientPage() {
       }
     };
     reader.readAsDataURL(file);
-  }
+  };
 
   return (
     <div className="space-y-8">
@@ -175,7 +175,7 @@ export function DiagnosisClientPage() {
           {imagePreview && (
             <div className="mt-4">
               <h3 className="text-lg font-medium mb-2">Image Preview:</h3>
-              <Image src={imagePreview} alt="Crop preview" width={300} height={300} className="rounded-md border object-cover data-ai-hint="crop plant" />
+              <Image src={imagePreview} alt="Crop preview" width={300} height={300} className="rounded-md border object-cover" data-ai-hint="crop plant" />
             </div>
           )}
           

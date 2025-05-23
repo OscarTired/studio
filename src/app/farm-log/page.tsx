@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -63,7 +64,7 @@ export default function FarmLogPage() {
       setImageFile(null);
       setImagePreview(null);
     }
-  };
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,7 +96,7 @@ export default function FarmLogPage() {
     setNotes("");
     setImageFile(null);
     setImagePreview(null);
-  };
+  }
 
   const handleEdit = (entry: LogEntry) => {
     setEditingEntry(entry);
@@ -104,12 +105,12 @@ export default function FarmLogPage() {
     setNotes(entry.notes);
     setImagePreview(entry.imagePreview || null);
     // Note: imageFile is not reset here, user needs to re-upload if they want to change it
-  };
+  }
 
   const handleDelete = (id: string) => {
     setLogEntries(logEntries.filter(entry => entry.id !== id));
     toast({ title: "Log Deleted", description: "The farm log entry has been removed.", variant: "destructive" });
-  };
+  }
 
   return (
     <div className="container mx-auto py-8 space-y-8">
@@ -166,7 +167,7 @@ export default function FarmLogPage() {
               <Input id="image" type="file" accept="image/*" onChange={handleImageChange} />
               {imagePreview && (
                 <div className="mt-2">
-                  <Image src={imagePreview} alt="Preview" width={200} height={200} className="rounded-md border object-cover data-ai-hint="farm field" />
+                  <Image src={imagePreview} alt="Preview" width={200} height={200} className="rounded-md border object-cover" data-ai-hint="farm field" />
                 </div>
               )}
             </div>
@@ -198,7 +199,7 @@ export default function FarmLogPage() {
                 <CardContent className="flex-grow">
                   {entry.imagePreview && (
                     <div className="mb-4">
-                      <Image src={entry.imagePreview} alt={entry.cropType} width={300} height={200} className="rounded-md w-full object-cover aspect-[3/2] data-ai-hint="crop field" />
+                      <Image src={entry.imagePreview} alt={entry.cropType} width={300} height={200} className="rounded-md w-full object-cover aspect-[3/2]" data-ai-hint="crop field" />
                     </div>
                   )}
                   {entry.notes && <p className="text-sm text-muted-foreground whitespace-pre-wrap">{entry.notes}</p>}

@@ -88,7 +88,7 @@ export default function WeatherPage() {
 
     getLocation();
   }, []);
-  
+
   const getWeatherIcon = (condition: string): React.ElementType => {
     const lowerCondition = condition.toLowerCase();
     if (lowerCondition.includes("sunny") || lowerCondition.includes("clear")) return Sun;
@@ -198,7 +198,7 @@ export default function WeatherPage() {
             alt="Weather placeholder" 
             width={600} 
             height={300} 
-            className="rounded-lg shadow-md mx-auto data-ai-hint="sky weather""
+            className="rounded-lg shadow-md mx-auto"
             data-ai-hint="sky weather"
         />
         <p className="text-sm text-muted-foreground mt-2">Visual representation of typical weather conditions.</p>

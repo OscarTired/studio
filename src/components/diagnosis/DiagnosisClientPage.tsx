@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { DiagnoseCropDiseaseInput, DiagnoseCropDiseaseOutput } from "@/ai/flows/diagnose-crop-disease";
@@ -57,7 +58,7 @@ export function DiagnosisClientPage() {
     } else {
       setImagePreview(null);
     }
-  };
+  }
 
   const onSubmit: SubmitHandler<DiagnosisFormValues> = async (data) => {
     setIsLoading(true);

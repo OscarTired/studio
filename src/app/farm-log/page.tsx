@@ -64,7 +64,7 @@ export default function FarmLogPage() {
       setImageFile(null);
       setImagePreview(null);
     }
-  }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,7 +96,7 @@ export default function FarmLogPage() {
     setNotes("");
     setImageFile(null);
     setImagePreview(null);
-  }
+  };
 
   const handleEdit = (entry: LogEntry) => {
     setEditingEntry(entry);
@@ -105,12 +105,12 @@ export default function FarmLogPage() {
     setNotes(entry.notes);
     setImagePreview(entry.imagePreview || null);
     // Note: imageFile is not reset here, user needs to re-upload if they want to change it
-  }
+  };
 
   const handleDelete = (id: string) => {
     setLogEntries(logEntries.filter(entry => entry.id !== id));
     toast({ title: "Log Deleted", description: "The farm log entry has been removed.", variant: "destructive" });
-  }
+  };
 
   return (
     <div className="container mx-auto py-8 space-y-8">

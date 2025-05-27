@@ -16,22 +16,26 @@ const DiagnoseCropDiseaseInputSchema = z.object({
   cropImage: z
     .string()
     .describe(
-      "A photo of a crop, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
+      "Una foto del cultivo, como una URI de datos que debe incluir un tipo MIME y usar codificación Base64. Formato esperado: 'data:<mimetype>;base64,<encoded_data>'."
     ),
-  cropType: z.string().describe('The type of crop in the image.'),
+  cropType: z.string().describe('El tipo de cultivo en la imagen, por ejemplo: Maíz, Papa, Quinua.'),
   fieldConditions: z
     .string()
     .optional()
-    .describe('Description of the field conditions where the crop is planted.'),
+    .describe('Descripción de las condiciones del campo donde el cultivo está sembrado, por ejemplo: sequía, exceso de lluvia, tipo de suelo.'),
 });
 export type DiagnoseCropDiseaseInput = z.infer<typeof DiagnoseCropDiseaseInputSchema>;
 
 const DiagnoseCropDiseaseOutputSchema = z.object({
-  diseaseName: z.string().describe('The predicted name of the disease or issue.'),
-  confidence: z.number().describe('The confidence level of the diagnosis (0-1).'),
-  symptoms: z.array(z.string()).describe('Observed symptoms from the image.'),
+  diseaseName: z.string().describe('El nombre predicho de la enfermedad o problema.'),
+  confidence: z.number().describe('El nivel de confianza del diagnóstico (0-1).'),
+  symptoms: z.array(z.string()).describe('Síntomas observados en la imagen.'),
   recommendations:
-    z.array(z.string()).describe('Recommended actions to address the issue.'),
+    z.array(z.string()).describe('Acciones recomendadas para abordar el problema. Incluir prácticas agrícolas sostenibles y culturalmente relevantes para la región andina.'),
+  aiResponseToQuestion: z
+  .string()
+  .optional()
+  .describe('Respuesta natural y útil del asistente de IA a la pregunta específica del agricultor, si la hay. Debe ser en español y adaptada al contexto peruano.'),
 });
 export type DiagnoseCropDiseaseOutput = z.infer<typeof DiagnoseCropDiseaseOutputSchema>;
 
@@ -45,13 +49,28 @@ const prompt = ai.definePrompt({
   name: 'diagnoseCropDiseasePrompt',
   input: {schema: DiagnoseCropDiseaseInputSchema},
   output: {schema: DiagnoseCropDiseaseOutputSchema},
-  prompt: `You are an expert in plant pathology. Analyze the provided image of the crop and provide a diagnosis, including the disease name, confidence level, observed symptoms, and recommendations for treatment.
+  prompt: `Eres un asistente experto en agronomía, especializado en cultivos y condiciones agrícolas de Perú.
+Tu objetivo principal es ayudar a los agricultores peruanos a diagnosticar problemas en sus cultivos y ofrecerles soluciones prácticas.
+Siempre debes responder en **español**, utilizando un lenguaje claro, sencillo y directo, adaptado al contexto y vocabulario local si es posible.
 
-Crop Type: {{{cropType}}}
-Field Conditions: {{{fieldConditions}}}
-Crop Image: {{media url=cropImage}}
+Analiza la siguiente imagen del cultivo y la información proporcionada.
+Si el agricultor ha hecho una pregunta, respóndele de manera natural y útil, además de proporcionar el diagnóstico estructurado.
 
-Ensure your diagnosis is accurate and actionable for the farmer.
+Información del Cultivo:
+Tipo de Cultivo: {{{cropType}}}
+Condiciones del Campo: {{{fieldConditions}}}
+Pregunta del Agricultor: {{{farmerQuestion}}}
+
+Imagen del Cultivo: {{media url=cropImage}}
+
+El formato de salida debe ser estrictamente JSON, incluyendo las siguientes claves:
+- "diseaseName": El nombre de la enfermedad o problema detectado.
+- "confidence": El nivel de confianza del diagnóstico (un número entre 0.0 y 1.0).
+- "symptoms": Un arreglo de strings con los síntomas observados en la imagen.
+- "recommendations": Un arreglo de strings con las acciones recomendadas para el manejo del problema. Prioriza recomendaciones prácticas, ecológicas y adaptadas a la agricultura peruana, si es posible.
+- "aiResponseToQuestion": Tu respuesta natural y útil a la "Pregunta del Agricultor", si se proporcionó una. Si no hay pregunta, este campo debe estar vacío o nulo.
+
+Asegura que tu diagnóstico sea preciso y que las recomendaciones sean claras y aplicables para el agricultor.
 `,
 });
 

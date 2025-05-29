@@ -30,7 +30,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <SidebarProvider defaultOpen={true} collapsible="icon">
+        <SidebarProvider defaultOpen={true}>
           <Sidebar variant="sidebar" collapsible="icon">
             <SidebarHeader className="p-4 items-center">
               <Link href="/" className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
@@ -67,7 +67,7 @@ export default function RootLayout({
               </SidebarMenu>
             </SidebarContent>
             <SidebarFooter className="p-4">
-              <p className="text-xs text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">© 2024 AgriVision</p>
+              <p className="text-xs text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">© 2025 AgriVision</p>
             </SidebarFooter>
           </Sidebar>
           <SidebarRail />

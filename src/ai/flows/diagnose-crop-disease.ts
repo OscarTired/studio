@@ -11,7 +11,6 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import { textToSpeechTool } from '../tools/text-to-speech';
 
 // Esquema de entrada para el diagnóstico de enfermedades de cultivos
 const DiagnoseCropDiseaseInputSchema = z.object({
@@ -134,29 +133,12 @@ const diagnoseCropDiseaseFlow = ai.defineFlow(
       textToSynthesize += ` El asistente de IA también responde: ${textOutput.aiResponseToQuestion}`;
     }
 
-    // 3. Llamar a la herramienta TTS para generar el audio
-    try {
-      const audioResponse = await textToSpeechTool({
-        text: textToSynthesize,
-        languageCode: 'es-ES', // Asegura el idioma para el TTS
-        ssmlGender: 'MALE', // O el género que prefieras
-        // Puedes añadir 'voiceName' si tienes una voz específica en mente, ej: 'es-ES-Wavenet-C'
-      });
-      audioContentBase64 = audioResponse.audioContent;
-    } catch (ttsError) {
-      console.error('Error al generar audio con TTS:', ttsError);
-      // Opcional: Muestra el error al usuario o registra el error de alguna manera.
-      // Por ahora no se adjuntará el audio si hay un error.
-      audioContentBase64 = undefined;
-    }
-
     return {
       diseaseName: textOutput.diseaseName,
       confidence: textOutput.confidence,
       symptoms: textOutput.symptoms,
       recommendations: textOutput.recommendations,
       aiResponseToQuestion: textOutput.aiResponseToQuestion,
-      audioContentBase64,
     };
   }
 );

@@ -1,6 +1,10 @@
+// Interfaz de usuario para la página de recomendaciones climáticas para agricultores
+
 "use client";
 
+// Importación de componentes y estilos necesarios
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { generateWeatherBasedRecommendations } from "@/ai/flows/weather-based-recommendations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,12 +15,13 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import dynamic from 'next/dynamic';
 
-// Importar el mapa de forma dinámica para evitar problemas de SSR
+// Importación del mapa de forma dinámica para evitar problemas de SSR
 const MapSelector = dynamic(() => import('../../components/MapSelector'), { 
   ssr: false,
   loading: () => <div className="h-64 bg-gray-100 rounded-lg flex items-center justify-center">Cargando mapa...</div>
 });
 
+// Definición de interfaces para los datos del clima y pronóstico
 interface WeatherData {
   location: string;
   coordinates: { lat: number; lon: number };
@@ -45,6 +50,7 @@ interface ForecastEntry {
   windSpeedMax: number;
 }
 
+// Funciones para obtener el ícono del clima basado en el mapeo de código de Open-Meteo
 const getWeatherIcon = (weatherCode: number): React.ElementType => {
   if (weatherCode === 0) return Sun; // Clear sky
   if (weatherCode === 1) return SunDim; // Mainly clear
@@ -60,6 +66,7 @@ const getWeatherIcon = (weatherCode: number): React.ElementType => {
   return Cloud; // Default
 };
 
+// Función para obtener la descripción del clima basada en el mapeo de código de Open-Meteo (en español)
 const getWeatherDescription = (weatherCode: number): string => {
   const codes: { [key: number]: string } = {
     0: "Cielo despejado",
@@ -84,6 +91,7 @@ const getWeatherDescription = (weatherCode: number): string => {
   return codes[weatherCode] || "Condiciones desconocidas";
 };
 
+// Función para obtener el ícono del termómetro basado en la temperatura promedio (tempLow y tempHigh)
 const getThermometerIcon = (tempLow: number, tempHigh: number): { icon: React.ElementType; color: string } => {
   const avgTemp = (tempLow + tempHigh) / 2;
   
@@ -100,12 +108,17 @@ const getThermometerIcon = (tempLow: number, tempHigh: number): { icon: React.El
   }
 };
 
+// Estados para manejar el clima y la ubicación
 export default function WeatherPage() {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gettingLocation, setGettingLocation] = useState(false);
   
+  // Estados para recomendaciones
+  const [recommendations, setRecommendations] = useState<string[] | null>(null);
+  const [loadingRecommendations, setLoadingRecommendations] = useState(false);
+
   // Estados para selección manual de ubicación
   const [showMapSelector, setShowMapSelector] = useState(false);
   const [manualLocation, setManualLocation] = useState("");
@@ -115,6 +128,7 @@ export default function WeatherPage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
 
+  // Función para obtener datos clima usando Open-Meteo API
   const fetchOpenMeteoWeather = async (latitude: number, longitude: number, targetDate?: Date) => {
     setLoading(true);
     setError(null);
@@ -257,15 +271,44 @@ export default function WeatherPage() {
 
       setWeather(formattedWeatherData);
       setLoading(false);
-      console.log("Weather data set successfully:", formattedWeatherData);
+      console.log("Conjunto de datos ordenados correctamente:", formattedWeatherData);
 
+    await fetchRecommendations(formattedWeatherData);
     } catch (err: any) {
-      console.error("Error fetching weather:", err);
+      console.error("Error en la extracción de datos:", err);
       setError(`Error al obtener datos del clima: ${err.message}`);
       setLoading(false);
     }
   };
 
+  // Función para obtener recomendaciones basadas en el clima usando el flujo de AI
+  const fetchRecommendations = async (weatherData: WeatherData) => {
+    setLoadingRecommendations(true);
+    setError(null);
+
+    try {
+      const input = {
+        location: weatherData.location,
+        coordinates: weatherData.coordinates,
+        date: weatherData.date.toISOString(),
+        tempHigh: weatherData.tempHigh,
+        tempLow: weatherData.tempLow,
+        humidity: weatherData.humidity,
+        windSpeed: weatherData.windSpeed,
+        condition: weatherData.condition,
+      };
+
+      const result = await generateWeatherBasedRecommendations(input);
+      setRecommendations(result.recommendations);
+    } catch (err) {
+      console.error("Error fetching recommendations:", err);
+      setError("Error al obtener recomendaciones agrícolas.");
+    } finally {
+      setLoadingRecommendations(false);
+    }
+  };
+
+  // Función para manejar la obtención de ubicación actual desde el navegador
   const handleGetLocationClick = () => {
     setGettingLocation(true);
     if (navigator.geolocation) {
@@ -313,6 +356,7 @@ export default function WeatherPage() {
     }
   };
 
+  // Función para manejar la búsqueda manual de ubicación
   const handleManualLocationSearch = async () => {
     if (!manualLocation.trim()) return;
     
@@ -344,12 +388,14 @@ export default function WeatherPage() {
     }
   };
 
+  // Función para manejar la selección de ubicación en el mapa
   const handleMapLocationSelect = (coords: { lat: number; lon: number }) => {
     setSelectedCoords(coords);
     setShowMapSelector(false);
     fetchOpenMeteoWeather(coords.lat, coords.lon, selectedDate);
   };
 
+  // Manejar el cambio de fecha en el selector
   const handleDateChange = (date: Date | null) => {
     if (date) {
       setSelectedDate(date);
@@ -362,6 +408,7 @@ export default function WeatherPage() {
     }
   };
 
+  // Bloque condicional para mostrar el estado de carga
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-full py-10">
@@ -371,6 +418,7 @@ export default function WeatherPage() {
     );
   }
 
+  // Renderizar la interfaz de usuario con los datos del clima y las recomendaciones
   return (
     <div className="container mx-auto py-8 space-y-6">
       {/* Panel de controles */}
@@ -429,7 +477,7 @@ export default function WeatherPage() {
               </div>
             </Button>
 
-            {/* Búsqueda manual */}
+            {/* Búsqueda manual por nombre de ciudad*/}
             <div className="space-y-2">
               <div className="flex gap-2">
                 <Input
@@ -460,7 +508,7 @@ export default function WeatherPage() {
         </CardContent>
       </Card>
 
-      {/* Selector de mapa modal */}
+      {/* Selector de mapa en modal */}
       {showMapSelector && (
         <div className="fixed top-[-25] left-0 right-0 bottom-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[50] p-4">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-5xl max-h-[90vh] mx-auto">
@@ -562,6 +610,21 @@ export default function WeatherPage() {
                 })}
               </div>
             </div>
+            {/* Nueva sección para recomendaciones agrícolas */}
+            <div>
+              <h3 className="text-xl font-semibold mb-4">Recomendaciones Agrícolas</h3>
+              {loadingRecommendations ? (
+                <p>Cargando recomendaciones...</p>
+              ) : recommendations ? (
+                <ul className="list-disc pl-5 space-y-2">
+                  {recommendations.map((rec, index) => (
+                    <li key={index}>{rec}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No hay recomendaciones disponibles.</p>
+              )}
+            </div>
           </CardContent>
         </Card>
       ) : (
@@ -576,8 +639,7 @@ export default function WeatherPage() {
         </Card>
       )}
 
-
-
+      {/* Mensaje de aviso */}
       <p className="text-xs text-muted-foreground text-center">
         Los datos climáticos son ilustrativos. Para decisiones agrícolas reales, consulta un servicio meteorológico profesional.
         <br />

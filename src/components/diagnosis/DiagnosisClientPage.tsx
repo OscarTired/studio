@@ -9,19 +9,18 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { UploadCloud, Info, CheckCircle, AlertTriangle, Thermometer, ShieldCheck, ListChecks } from "lucide-react";
+import { UploadCloud, Info, CheckCircle, AlertTriangle, Thermometer, ShieldCheck, ListChecks, Volume2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 // Esquema de validación del formulario en español
 const diagnosisFormSchema = z.object({
   cropType: z.string().min(2, { message: "El tipo de cultivo debe tener al menos 2 caracteres." }),
-  fieldConditions: z.string().optional(),
+  //fieldConditions: z.string().optional(),
   cropImage: z
     .custom<FileList>((val) => val instanceof FileList && val.length > 0, "Por favor, suba una imagen.")
     .refine((files) => files?.[0]?.size <= 5 * 1024 * 1024, `El tamaño máximo del archivo es 5MB.`)
@@ -33,21 +32,75 @@ const diagnosisFormSchema = z.object({
 
 type DiagnosisFormValues = z.infer<typeof diagnosisFormSchema>;
 
-export function DiagnosisClientPage() {
+export function DiagnosisClientPage() { 
   const [diagnosisResult, setDiagnosisResult] = useState<DiagnoseCropDiseaseOutput | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [gettingLocation, setGettingLocation] = useState(false);
+  const [location, setLocation] = useState<{ lat: number; lon: number } | null>(null);
   const { toast } = useToast();
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const form = useForm<DiagnosisFormValues>({
     resolver: zodResolver(diagnosisFormSchema),
     defaultValues: {
       cropType: "",
-      fieldConditions: "",
+      //*fieldConditions: "",//
     },
   });
 
+// Este useEffect controlará la reproducción automáticamente una vez que el resultado esté disponible
+  useEffect(() => {
+    if (diagnosisResult?.audioContentBase64) {
+      const audioSource = `data:audio/mpeg;base64,${diagnosisResult.audioContentBase64}`;
+      if (audioRef.current) {
+        audioRef.current.src = audioSource;
+        audioRef.current.load(); // Carga la nueva fuente
+        audioRef.current.play().catch(e => console.error("Error al intentar reproducir el audio automáticamente:", e)); // Intenta reproducir
+      }
+    }
+  }, [diagnosisResult]); // Se dispara cuando diagnosisResult cambia
+
+  // Función para obtener la ubicación del usuario
+  const handleGetLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setLocation({ lat: position.coords.latitude, lon: position.coords.longitude });
+          setGettingLocation(false);
+          toast({
+            title: "Ubicación Obtenida",
+            description: "Tu ubicación ha sido obtenida exitosamente.",
+            variant: "default",
+          });
+        },
+        (error) => {
+          setError("No se pudo obtener la ubicación. Por favor, intenta nuevamente.");
+          toast({
+            title: "Error de Ubicación",
+            description: "No se pudo obtener la ubicación.",
+            variant: "destructive",
+          });
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 60000,
+        }
+      );
+    } else {
+      setError("La geolocalización no es compatible con este navegador.");
+      setGettingLocation(false);
+      toast({
+        title: "Error de Geolocalización",
+        description: "Tu navegador no soporta la geolocalización.",
+        variant: "destructive",
+      }); 
+    }
+  };
+
+  // Función para manejar el cambio de imagen
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -61,7 +114,107 @@ export function DiagnosisClientPage() {
     }
   };
 
+  // Función para obtener los datos climáticos actuales desde OpenMeteo
+  const fetchOpenMeteoWeather = async (latitude: number, longitude: number): Promise<any> => {
+    try {
+      // Validar coordenadas
+      if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+        throw new Error('Coordenadas inválidas');
+      }
+      const params = new URLSearchParams({
+        latitude: latitude.toFixed(6),
+        longitude: longitude.toFixed(6),
+        current: 'temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m',
+        daily: 'weather_code,temperature_2m_max,temperature_2m_min,relative_humidity_2m_mean,wind_speed_10m_max,wind_speed_10m_mean',
+        timezone: 'auto',
+      });
+
+      const url = `https://api.open-meteo.com/v1/forecast?${params}`;
+      console.log('Fetching weather from URL:', url);
+
+      const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`Error HTTP ${response.status}`);
+    }
+
+      const data = await response.json();
+      console.log('Raw API Data:', data);
+
+      // Obtener nombre de la ubicación usando geocoding inverso
+      let locationName = `${latitude.toFixed(2)}°N, ${longitude.toFixed(2)}°E`;
+      try {
+        const geoResponse = await fetch(
+          `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${latitude.toFixed(4)}&longitude=${longitude.toFixed(4)}&count=1&language=es&format=json`
+        );
+        if (geoResponse.ok) {
+          const geoData = await geoResponse.json();
+          if (geoData.results && geoData.results.length > 0) {
+            const result = geoData.results[0];
+            locationName = `${result.name}${result.admin1 ? ', ' + result.admin1 : ''}${result.country ? ', ' + result.country : ''}`;
+          }
+        }
+      } catch (geoError) {
+        console.log("No se pudo obtener el nombre de la ubicación:", geoError);
+      }
+
+      // Mapear el código de clima a una descripción
+      const getWeatherDescription = (code: number) => {
+        const descriptions: { [key: number]: string } = {
+          0: "Despejado",
+          1: "Principalmente despejado",
+          2: "Parcialmente nublado",
+          3: "Nublado",
+          45: "Niebla",
+          48: "Niebla con escarcha",
+          51: "Llovizna ligera",
+          53: "Llovizna moderada",
+          55: "Llovizna intensa",
+          61: "Lluvia ligera",
+          63: "Lluvia moderada",
+          65: "Lluvia intensa",
+          71: "Nieve ligera",
+          73: "Nieve moderada",
+          75: "Nieve intensa",
+          80: "Chubascos ligeros",
+          81: "Chubascos moderados",
+          82: "Chubascos intensos",
+          95: "Tormenta",
+          96: "Tormenta con granizo ligero",
+          99: "Tormenta con granizo intenso",
+        };
+        return descriptions[code] || "Desconocido";
+      };
+
+      // Formatear los datos climáticos según la interfaz WeatherData
+      const formattedWeatherData = {
+        location: locationName,
+        coordinates: { lat: latitude, lon: longitude },
+        temperature: Math.round(data.current.temperature_2m),
+        tempHigh: Math.round(data.daily.temperature_2m_max[0]),
+        tempLow: Math.round(data.daily.temperature_2m_min[0]),
+        condition: getWeatherDescription(data.current.weather_code),
+        humidity: Math.round(data.current.relative_humidity_2m),
+        windSpeed: Math.round(data.current.wind_speed_10m * 3.6), // Convertir m/s a km/h
+        windSpeedMin: Math.round(data.daily.wind_speed_10m_mean[0] * 3.6),
+        windSpeedMax: Math.round(data.daily.wind_speed_10m_max[0] * 3.6),
+        icon: () => null, // No se usa en el diagnóstico
+      };
+      console.log('Formatted Weather Data:', formattedWeatherData); // Debugging log
+      return formattedWeatherData;
+    } catch (err: any) {
+      console.error('Error in fetchOpenMeteoWeather:', err);
+      throw new Error(`Error al obtener datos climáticos: ${err.message}`);
+    }
+  };
+
+// Función para manejar el envío del formulario
   const onSubmit: SubmitHandler<DiagnosisFormValues> = async (data) => {
+    if (!location) {
+      setError("Por favor, obtén tu ubicación primero.");
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     setDiagnosisResult(null);
@@ -72,11 +225,40 @@ export function DiagnosisClientPage() {
     reader.onloadend = async () => {
       try {
         const imageDataUri = reader.result as string;
+
+        // Obtener datos climáticos de OpenMeteo
+        const weatherData = await fetchOpenMeteoWeather(location.lat, location.lon);
+        if (!weatherData?.location || !weatherData?.coordinates) {
+          throw new Error('Datos climáticos incompletos recibidos');
+        }
+
+        // Preparar el input para el flujo de diagnóstico
         const input: DiagnoseCropDiseaseInput = {
           cropImage: imageDataUri,
           cropType: data.cropType,
-          fieldConditions: data.fieldConditions,
-        };
+          weatherData: {
+            location: weatherData.location,
+            coordinates: weatherData.coordinates,
+            temperature: weatherData.temperature,
+            tempHigh: weatherData.tempHigh,
+            tempLow: weatherData.tempLow,
+            condition: weatherData.condition,
+            humidity: weatherData.humidity,
+            windSpeed: weatherData.windSpeed,
+            windSpeedMin: weatherData.windSpeedMin,
+            windSpeedMax: weatherData.windSpeedMax,
+            icon: weatherData.icon,
+        /*const imageDataUri = reader.result as string;
+        const input: DiagnoseCropDiseaseInput = {
+          cropImage: imageDataUri,
+          cropType: data.cropType,
+          fieldConditions: data.fieldConditions,*/
+        },
+        date: new Date().toISOString(), // Fecha actual en formato ISO
+      };
+
+        console.log('Input para diagnóstico:', input); // Debugging log
+
         const result = await diagnoseCropDisease(input);
         setDiagnosisResult(result);
         toast({
@@ -84,21 +266,24 @@ export function DiagnosisClientPage() {
           description: "La Inteligencia Artificial ha analizado su imagen del cultivo.",
           variant: "default",
         });
-      } catch (err) {
-        console.error("Error en el diagnóstico:", err);
-        const errorMessage = err instanceof Error ? err.message : "Ocurrió un error desconocido durante el diagnóstico.";
-        setError(errorMessage);
-        toast({
-          title: "Error en el Diagnóstico",
-          description: errorMessage,
-          variant: "destructive",
-        });
+      } catch (err: any) {
+        console.error('Error en el diagnóstico:', err);
+        setError(`Error al realizar el diagnóstico: ${err.message}`);
+      toast({
+        title: "Error en el Diagnóstico",
+        description: err.message,
+        variant: "destructive",
+      });
       } finally {
         setIsLoading(false);
       }
     };
     reader.readAsDataURL(file);
   };
+
+  const audioUrl = diagnosisResult?.audioContentBase64
+    ? `data:audio/mpeg;base64,${diagnosisResult.audioContentBase64}`
+    : undefined;
 
   return (
     <div className="space-y-8">
@@ -131,23 +316,7 @@ export function DiagnosisClientPage() {
                   </FormItem>
                 )}
               />
-
-              <FormField
-                control={form.control}
-                name="fieldConditions"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Condiciones del Campo (Opcional)</FormLabel>
-                    <FormControl>
-                      <Textarea placeholder="Ej. Lluvias fuertes recientes, suelo seco, alta humedad" {...field} />
-                    </FormControl>
-                    <FormDescription>
-                      Describa cualquier condición ambiental o del suelo relevante que observe.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {/* Bloque de fieldConditions eliminado */}
 
               <FormField
                 control={form.control}
@@ -205,7 +374,11 @@ export function DiagnosisClientPage() {
                 </div>
               )}
 
-              <Button type="submit" disabled={isLoading} className="w-full">
+              <Button type="button" onClick={handleGetLocation} className="w-full">
+                Obtener Ubicación
+              </Button>
+
+              <Button type="submit" disabled={isLoading || !location} className="w-full">
                 {isLoading ? (
                   <>
                     <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -267,6 +440,20 @@ export function DiagnosisClientPage() {
                 ))}
               </ul>
             </div>
+            {audioUrl && (
+                    <div className="mt-4">
+                      <h3 className="text-lg font-semibold flex items-center gap-2">
+                        <Volume2 className="text-accent" /> Explicación en Audio:
+                      </h3>
+                      <audio ref={audioRef} controls className="w-full mt-2">
+                        <source src={audioUrl} type="audio/mpeg" />
+                        Tu navegador no soporta el elemento de audio.
+                      </audio>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Puedes escuchar el diagnóstico completo aquí.
+                      </p>
+                    </div>
+                  )}      
           </CardContent>
           <CardFooter className="text-sm text-muted-foreground">
              <p>Este diagnóstico es una herramienta de apoyo. Para decisiones cruciales, consulte siempre a un agrónomo local.</p>

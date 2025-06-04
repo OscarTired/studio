@@ -14,7 +14,7 @@ import Image from "next/image";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { UploadCloud, Info, CheckCircle, AlertTriangle, Thermometer, ShieldCheck, ListChecks, Volume2 } from "lucide-react";
+import { UploadCloud, Info, CheckCircle, AlertTriangle, Thermometer, ShieldCheck, ListChecks, Volume2, X, Camera, Play, Square } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 // Esquema de validación del formulario en español
@@ -41,6 +41,8 @@ export function DiagnosisClientPage() {
   const [location, setLocation] = useState<{ lat: number; lon: number } | null>(null);
   const { toast } = useToast();
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isPlayingRecommendations, setIsPlayingRecommendations] = useState(false);
+  const [currentUtterance, setCurrentUtterance] = useState<SpeechSynthesisUtterance | null>(null);
 
   const form = useForm<DiagnosisFormValues>({
     resolver: zodResolver(diagnosisFormSchema),
@@ -111,6 +113,76 @@ export function DiagnosisClientPage() {
       reader.readAsDataURL(file);
     } else {
       setImagePreview(null);
+    }
+  };
+
+  // Función para quitar la imagen
+  const handleRemoveImage = () => {
+    setImagePreview(null);
+    form.setValue('cropImage', undefined as any);
+    // Reset the file input
+    const fileInput = document.getElementById('dropzone-file') as HTMLInputElement;
+    if (fileInput) {
+      fileInput.value = '';
+    }
+  };
+
+  // Función para reproducir todo el resultado del diagnóstico con texto a voz
+  const speakRecommendations = (recommendations: string[]) => {
+    if ('speechSynthesis' in window && diagnosisResult) {
+      // Detener cualquier síntesis anterior
+      window.speechSynthesis.cancel();
+      
+      // Crear el texto completo del diagnóstico
+      let textToSpeak = `Resultado del diagnóstico. `;
+      textToSpeak += `Enfermedad o problema identificado: ${diagnosisResult.diseaseName}. `;
+      textToSpeak += `Nivel de confianza: ${Math.round(diagnosisResult.confidence * 100)} por ciento. `;
+      textToSpeak += `Síntomas observados: ${diagnosisResult.symptoms.join(', ')}. `;
+      textToSpeak += `Recomendaciones para el manejo: ${recommendations.join('. ')}.`;
+      
+      const utterance = new SpeechSynthesisUtterance(textToSpeak);
+      
+      // Configurar la voz en español si está disponible
+      const voices = window.speechSynthesis.getVoices();
+      const spanishVoice = voices.find(voice => voice.lang.startsWith('es'));
+      if (spanishVoice) {
+        utterance.voice = spanishVoice;
+      }
+      
+      utterance.rate = 0.9;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+      
+      utterance.onstart = () => {
+        setIsPlayingRecommendations(true);
+      };
+      
+      utterance.onend = () => {
+        setIsPlayingRecommendations(false);
+        setCurrentUtterance(null);
+      };
+      
+      utterance.onerror = (event) => {
+        if (event.error !== 'canceled' && event.error !== 'interrupted') {
+          setError('Error al reproducir el audio del diagnóstico');
+        }
+        setIsPlayingRecommendations(false);
+        setCurrentUtterance(null);
+      };
+      
+      setCurrentUtterance(utterance);
+      window.speechSynthesis.speak(utterance);
+    } else {
+      setError('Tu navegador no soporta la síntesis de voz');
+    }
+  };
+
+  // Función para detener la reproducción
+  const stopSpeaking = () => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      setIsPlayingRecommendations(false);
+      setCurrentUtterance(null);
     }
   };
 
@@ -326,32 +398,74 @@ export function DiagnosisClientPage() {
                     <FormLabel>Imagen del Cultivo</FormLabel>
                     <FormControl>
                       <div className="flex items-center justify-center w-full">
-                        <label
-                          htmlFor="dropzone-file"
-                          className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed rounded-lg cursor-pointer bg-card hover:bg-muted transition-colors"
-                        >
-                          <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                            <UploadCloud className="w-10 h-10 mb-3 text-muted-foreground" />
-                            <p className="mb-2 text-sm text-muted-foreground">
-                              <span className="font-semibold">Haga clic para subir</span> o arrastre y suelte
-                            </p>
-                            <p className="text-xs text-muted-foreground">Formatos aceptados: JPG, PNG, WEBP (Máx. 5MB)</p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Asegúrese de que la imagen sea clara y del área afectada.
-                            </p>
+                        {!imagePreview ? (
+                          <label
+                            htmlFor="dropzone-file"
+                            className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed rounded-lg cursor-pointer bg-card hover:bg-muted transition-colors"
+                          >
+                            <div className="flex flex-col items-center justify-center pt-5 pb-6 px-4 text-center">
+                              <UploadCloud className="w-10 h-10 mb-3 text-muted-foreground" />
+                              <p className="mb-2 text-sm text-muted-foreground text-center">
+                                <span className="font-semibold">Haga clic para subir</span> o arrastre y suelte
+                              </p>
+                              <p className="text-xs text-muted-foreground text-center px-2">Formatos aceptados: JPG, PNG, WEBP (Máx. 5MB)</p>
+                              <p className="text-xs text-muted-foreground mt-1 text-center px-2">
+                                Asegúrese de que la imagen sea clara y del área afectada.
+                              </p>
+                            </div>
+                            <Input
+                              id="dropzone-file"
+                              type="file"
+                              className="hidden"
+                              accept="image/png, image/jpeg, image/webp"
+                              onChange={(e) => {
+                                onChange(e.target.files);
+                                handleImageChange(e);
+                              }}
+                              {...rest}
+                            />
+                          </label>
+                        ) : (
+                          <div className="relative w-full h-64 border-2 border-solid border-primary/20 rounded-lg overflow-hidden bg-card">
+                            <Image
+                              src={imagePreview}
+                              alt="Imagen del cultivo seleccionada"
+                              fill
+                              className="object-cover"
+                              data-ai-hint="crop plant"
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-2 px-4">
+                              <label
+                                htmlFor="dropzone-file-change"
+                                className="bg-primary text-primary-foreground px-3 py-2 rounded-md cursor-pointer hover:bg-primary/90 transition-colors flex items-center gap-2 text-sm font-medium flex-shrink-0"
+                              >
+                                <Camera className="w-4 h-4" />
+                                <span className="hidden sm:inline">Cambiar</span>
+                              </label>
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                onClick={handleRemoveImage}
+                                className="flex items-center gap-2 flex-shrink-0"
+                              >
+                                <X className="w-4 h-4" />
+                                <span className="hidden sm:inline">Quitar</span>
+                              </Button>
+                            </div>
+                            <Input
+                              id="dropzone-file-change"
+                              type="file"
+                              className="hidden"
+                              accept="image/png, image/jpeg, image/webp"
+                              onChange={(e) => {
+                                onChange(e.target.files);
+                                handleImageChange(e);
+                              }}
+                              {...rest}
+                            />
                           </div>
-                          <Input
-                            id="dropzone-file"
-                            type="file"
-                            className="hidden"
-                            accept="image/png, image/jpeg, image/webp"
-                            onChange={(e) => {
-                              onChange(e.target.files);
-                              handleImageChange(e);
-                            }}
-                            {...rest}
-                          />
-                        </label>
+                        )}
                       </div>
                     </FormControl>
                     <FormDescription>Suba una imagen clara del cultivo afectado para un mejor diagnóstico.</FormDescription>
@@ -359,20 +473,6 @@ export function DiagnosisClientPage() {
                   </FormItem>
                 )}
               />
-
-              {imagePreview && (
-                <div className="mt-4 text-center"> {/* Centrar el preview */}
-                  <h3 className="text-lg font-medium mb-2">Previsualización de la Imagen:</h3>
-                  <Image
-                    src={imagePreview}
-                    alt="Previsualización del cultivo"
-                    width={300}
-                    height={300}
-                    className="rounded-md border object-cover mx-auto" // mx-auto para centrar
-                    data-ai-hint="crop plant"
-                  />
-                </div>
-              )}
 
               <Button type="button" onClick={handleGetLocation} className="w-full">
                 Obtener Ubicación
@@ -408,7 +508,33 @@ export function DiagnosisClientPage() {
       {diagnosisResult && (
         <Card className="mt-8 shadow-md">
           <CardHeader>
-            <CardTitle className="text-2xl flex items-center gap-2"><ShieldCheck className="text-primary"/>Resultado del Diagnóstico</CardTitle>
+            <div className="flex items-center justify-between mb-2">
+              <CardTitle className="text-2xl flex items-center gap-2"><ShieldCheck className="text-primary"/>Resultado del Diagnóstico</CardTitle>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => speakRecommendations(diagnosisResult.recommendations)}
+                  disabled={isPlayingRecommendations}
+                  className="flex items-center gap-2 flex-shrink-0"
+                >
+                  <Play className="w-4 h-4" />
+                  <span className="hidden sm:inline">Reproducir</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={stopSpeaking}
+                  disabled={!isPlayingRecommendations}
+                  className="flex items-center gap-2 flex-shrink-0"
+                >
+                  <Square className="w-4 h-4" />
+                  <span className="hidden sm:inline">Detener</span>
+                </Button>
+              </div>
+            </div>
             <CardDescription>Análisis del estado de su cultivo impulsado por Inteligencia Artificial.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

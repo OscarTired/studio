@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useEffect, useState } from "react";
-import { MapPin, Thermometer, Wind, Droplets, Sun, Cloud, CloudRain, CloudSnow, Zap, Loader2, WifiOff, Search, Calendar, Map, CloudDrizzle, Cloudy, SunMedium, CloudLightning, CloudFog, Snowflake, SunDim, ThermometerSun, ThermometerSnowflake } from "lucide-react";
+import { MapPin, Thermometer, Wind, Droplets, Sun, Cloud, CloudRain, CloudSnow, Zap, Loader2, WifiOff, Search, Calendar, Map, CloudDrizzle, Cloudy, SunMedium, CloudLightning, CloudFog, Snowflake, SunDim, ThermometerSun, ThermometerSnowflake, Volume2, VolumeX } from "lucide-react";
 import Image from "next/image";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -56,12 +56,13 @@ const getWeatherIcon = (weatherCode: number): React.ElementType => {
   if (weatherCode === 1) return SunDim; // Mainly clear
   if (weatherCode === 2) return Cloudy; // Partly cloudy
   if (weatherCode === 3) return Cloud; // Overcast
-  if (weatherCode >= 45 && weatherCode <= 48) return CloudFog; // Fog
+  if (weatherCode === 45) return CloudFog; // Fog
+  if (weatherCode === 48) return Snowflake; // Fog with frost
   if (weatherCode >= 51 && weatherCode <= 55) return CloudDrizzle; // Drizzle
   if (weatherCode >= 61 && weatherCode <= 67) return CloudRain; // Rain
   if (weatherCode >= 71 && weatherCode <= 86) return CloudSnow; // Snow
   if (weatherCode === 95) return CloudLightning; // Thunderstorm
-  if (weatherCode === 96) return Snowflake; // Thunderstorm with light hail
+  if (weatherCode === 96) return ThermometerSnowflake; // Thunderstorm with light hail
   if (weatherCode === 99) return CloudLightning; // Thunderstorm with heavy hail
   return Cloud; // Default
 };
@@ -127,6 +128,68 @@ export default function WeatherPage() {
   // Estados para selección de fecha
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
+
+  // Estados para funcionalidad de texto a voz con Web Speech API
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [currentUtterance, setCurrentUtterance] = useState<SpeechSynthesisUtterance | null>(null);
+
+  // Verificar si el navegador soporta Web Speech API
+  useEffect(() => {
+    setSpeechSupported('speechSynthesis' in window);
+  }, []);
+
+  // Función para leer las recomendaciones usando Web Speech API
+  const speakRecommendations = () => {
+    if (!recommendations || !speechSupported) return;
+    
+    // Detener cualquier síntesis en curso
+    window.speechSynthesis.cancel();
+    
+    setIsSpeaking(true);
+    
+    const text = recommendations.join('. ');
+    const utterance = new SpeechSynthesisUtterance(text);
+    setCurrentUtterance(utterance);
+    
+    // Configurar la voz en español
+    const voices = window.speechSynthesis.getVoices();
+    const spanishVoice = voices.find(voice => 
+      voice.lang.includes('es') || voice.lang.includes('ES')
+    );
+    
+    if (spanishVoice) {
+      utterance.voice = spanishVoice;
+    }
+    
+    utterance.lang = 'es-ES';
+    utterance.rate = 0.9; // Velocidad ligeramente más lenta
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      setCurrentUtterance(null);
+    };
+    
+    utterance.onerror = (event) => {
+      // Solo mostrar error si no fue una cancelación manual
+      if (event.error !== 'canceled' && event.error !== 'interrupted') {
+        setError('Error al reproducir el audio');
+      }
+      setIsSpeaking(false);
+      setCurrentUtterance(null);
+    };
+    
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // Función para detener la lectura
+  const stopSpeaking = () => {
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+    setCurrentUtterance(null);
+  };
 
   // Función para obtener datos clima usando Open-Meteo API
   const fetchOpenMeteoWeather = async (latitude: number, longitude: number, targetDate?: Date) => {
@@ -612,7 +675,43 @@ export default function WeatherPage() {
             </div>
             {/* Nueva sección para recomendaciones agrícolas */}
             <div>
-              <h3 className="text-xl font-semibold mb-4">Recomendaciones Agrícolas</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-semibold">Recomendaciones Agrícolas</h3>
+                {speechSupported && recommendations && (
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={speakRecommendations}
+                      disabled={isSpeaking || loadingRecommendations}
+                      variant="outline"
+                      size="sm"
+                      className="flex items-center gap-2"
+                    >
+                      {isSpeaking ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Leyendo...
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 className="w-4 h-4" />
+                          Escuchar
+                        </>
+                      )}
+                    </Button>
+                    {isSpeaking && (
+                      <Button
+                        onClick={stopSpeaking}
+                        variant="outline"
+                        size="sm"
+                        className="flex items-center gap-2"
+                      >
+                        <VolumeX className="w-4 h-4" />
+                        Detener
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
               {loadingRecommendations ? (
                 <p>Cargando recomendaciones...</p>
               ) : recommendations ? (

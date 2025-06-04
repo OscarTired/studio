@@ -11,7 +11,7 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import { date } from 'zod';
+import { textToSpeechTool } from '../tools/text-to-speech';
 
 // Esquema de entrada para el diagnóstico de enfermedades de cultivos
 const DiagnoseCropDiseaseInputSchema = z.object({
@@ -57,7 +57,12 @@ const DiagnoseCropDiseaseOutputSchema = z.object({
   .string()
   .optional()
   .describe('Respuesta natural y útil del asistente de IA a la pregunta específica del agricultor, si la hay. Debe ser en español y adaptada al contexto peruano.'),
+  audioContentBase64: z
+  .string()
+  .optional()
+  .describe("URL del audio generado con la explicación oral del diagnóstico."),
 });
+
 export type DiagnoseCropDiseaseOutput = z.infer<typeof DiagnoseCropDiseaseOutputSchema>;
 
 // Función para ejecutar el flujo de diagnóstico de enfermedades de cultivos
@@ -99,6 +104,7 @@ El formato de salida debe ser estrictamente JSON, incluyendo las siguientes clav
 - "symptoms": Lista de síntomas observados en la imagen y factores climáticos que apoyan el diagnóstico (e.g., "Alta humedad favorece hongos")..
 - "recommendations": Un arreglo de strings con las acciones recomendadas para el manejo del problema. Prioriza recomendaciones prácticas, probadas, ecológicas y adaptadas a la agricultura peruana, si es posible.
 - "aiResponseToQuestion": Tu respuesta natural y útil a la "Pregunta del Agricultor", si se proporcionó una. Si no hay pregunta, este campo debe estar vacío o nulo.
+- "audioContentBase64": Contenido del audio generado con la explicación oral (opcional, solo si se genera).
 
 Asegúrate de que el diagnóstico sea preciso y que las recomendaciones sean prácticas, considerando tanto los síntomas visuales como las condiciones climáticas actuales. 
 Explica claramente cómo las condiciones climáticas de la ubicación obtenida (e.g., humedad alta, temperaturas cálidas) refuerzan tu hipótesis.
@@ -107,12 +113,50 @@ Explica claramente cómo las condiciones climáticas de la ubicación obtenida (
 
 const diagnoseCropDiseaseFlow = ai.defineFlow(
   {
+    // 1. Obtener la respuesta inicial del modelo (diagnóstico y recomendaciones en texto)
     name: 'diagnoseCropDiseaseFlow',
     inputSchema: DiagnoseCropDiseaseInputSchema,
     outputSchema: DiagnoseCropDiseaseOutputSchema,
   },
   async input => {
     const {output} = await prompt(input);
-    return output!;
+    const textOutput = output!;
+
+    let audioContentBase64: string | undefined;
+
+    // 2. Concatenar el texto para la síntesis de voz
+    // Incluimos la respuesta de IA si existe, el diagnóstico, los síntomas y las recomendaciones.
+    let textToSynthesize = `Diagnóstico: ${textOutput.diseaseName}. Nivel de confianza: ${Math.round(textOutput.confidence * 100)}%. Síntomas: ${textOutput.symptoms.join(', ')}. `;
+    if (textOutput.recommendations && textOutput.recommendations.length > 0) {
+      textToSynthesize += `Recomendaciones: ${textOutput.recommendations.join('. ')}.`;
+    }
+    if (textOutput.aiResponseToQuestion) {
+      textToSynthesize += ` El asistente de IA también responde: ${textOutput.aiResponseToQuestion}`;
+    }
+
+    // 3. Llamar a la herramienta TTS para generar el audio
+    try {
+      const audioResponse = await textToSpeechTool({
+        text: textToSynthesize,
+        languageCode: 'es-ES', // Asegura el idioma para el TTS
+        ssmlGender: 'MALE', // O el género que prefieras
+        // Puedes añadir 'voiceName' si tienes una voz específica en mente, ej: 'es-ES-Wavenet-C'
+      });
+      audioContentBase64 = audioResponse.audioContent;
+    } catch (ttsError) {
+      console.error('Error al generar audio con TTS:', ttsError);
+      // Opcional: Muestra el error al usuario o registra el error de alguna manera.
+      // Por ahora no se adjuntará el audio si hay un error.
+      audioContentBase64 = undefined;
+    }
+
+    return {
+      diseaseName: textOutput.diseaseName,
+      confidence: textOutput.confidence,
+      symptoms: textOutput.symptoms,
+      recommendations: textOutput.recommendations,
+      aiResponseToQuestion: textOutput.aiResponseToQuestion,
+      audioContentBase64,
+    };
   }
 );

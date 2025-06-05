@@ -64,42 +64,159 @@ export function DiagnosisClientPage() {
     }
   }, [diagnosisResult]); // Se dispara cuando diagnosisResult cambia
 
+  // Función fallback para geolocalización por IP
+  const tryIPGeolocation = async () => {
+    try {
+      console.log('Intentando geolocalización por IP...');
+      
+      // Usar ipapi.co que es gratuito y no requiere API key
+      const response = await fetch('https://ipapi.co/json/');
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.latitude && data.longitude) {
+        console.log('Ubicación obtenida por IP:', {
+          lat: data.latitude,
+          lon: data.longitude,
+          city: data.city,
+          country: data.country_name
+        });
+        
+        setLocation({ lat: data.latitude, lon: data.longitude });
+        setGettingLocation(false);
+        setError("");
+        toast({
+          title: "Ubicación Aproximada Obtenida",
+          description: `Ubicación basada en IP: ${data.city}, ${data.country_name}`,
+          variant: "default",
+        });
+      } else {
+        throw new Error('No se pudieron obtener coordenadas válidas');
+      }
+    } catch (ipError) {
+      console.error('Error en geolocalización por IP:', ipError);
+      
+      // Si también falla la geolocalización por IP, mostrar error final
+      const errorMessage = "No se pudo obtener la ubicación ni por GPS ni por IP. Verifica tu conexión a internet.";
+      setError(errorMessage);
+      setGettingLocation(false);
+      toast({
+        title: "Error de Ubicación",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
+  };
+
   // Función para obtener la ubicación del usuario
   const handleGetLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setLocation({ lat: position.coords.latitude, lon: position.coords.longitude });
-          setGettingLocation(false);
-          toast({
-            title: "Ubicación Obtenida",
-            description: "Tu ubicación ha sido obtenida exitosamente.",
-            variant: "default",
-          });
-        },
-        (error) => {
-          setError("No se pudo obtener la ubicación. Por favor, intenta nuevamente.");
-          toast({
-            title: "Error de Ubicación",
-            description: "No se pudo obtener la ubicación.",
-            variant: "destructive",
-          });
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 60000,
-        }
-      );
-    } else {
-      setError("La geolocalización no es compatible con este navegador.");
+    console.log('Iniciando solicitud de geolocalización...');
+    console.log('Navegador:', navigator.userAgent);
+    console.log('HTTPS:', window.location.protocol === 'https:');
+    console.log('Localhost:', window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    
+    if (!navigator.geolocation) {
+      const errorMsg = "La geolocalización no es compatible con este navegador.";
+      console.error(errorMsg);
+      setError(errorMsg);
       setGettingLocation(false);
       toast({
         title: "Error de Geolocalización",
-        description: "Tu navegador no soporta la geolocalización.",
+        description: errorMsg,
         variant: "destructive",
-      }); 
+      });
+      return;
     }
+
+    // Verificar permisos antes de solicitar ubicación
+    if ('permissions' in navigator) {
+      navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+        console.log('Estado de permisos de geolocalización:', result.state);
+        if (result.state === 'denied') {
+          const errorMsg = "Los permisos de ubicación están denegados. Por favor, habilítalos en la configuración del navegador.";
+          setError(errorMsg);
+          setGettingLocation(false);
+          toast({
+            title: "Permisos Denegados",
+            description: errorMsg,
+            variant: "destructive",
+          });
+          return;
+        }
+      }).catch((err) => {
+        console.warn('No se pudo verificar permisos:', err);
+      });
+    }
+
+    setGettingLocation(true);
+    
+    const options = {
+      enableHighAccuracy: false, // Cambiar a false para mejor compatibilidad
+      timeout: 15000, // Aumentar timeout
+      maximumAge: 300000, // 5 minutos
+    };
+    
+    console.log('Opciones de geolocalización:', options);
+    
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        console.log('Ubicación obtenida exitosamente:', {
+          lat: position.coords.latitude,
+          lon: position.coords.longitude,
+          accuracy: position.coords.accuracy
+        });
+        
+        setLocation({ lat: position.coords.latitude, lon: position.coords.longitude });
+        setGettingLocation(false);
+        setError(""); // Limpiar errores previos
+        toast({
+          title: "Ubicación Obtenida",
+          description: `Coordenadas: ${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`,
+          variant: "default",
+        });
+      },
+      (error) => {
+        console.error('Error de geolocalización:', error);
+        
+        let errorMessage = "No se pudo obtener la ubicación. ";
+        let errorTitle = "Error de Ubicación";
+        
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            errorMessage = "Permisos de ubicación denegados. Por favor, habilita los permisos de ubicación en tu navegador.";
+            errorTitle = "Permisos Denegados";
+            console.error('Permisos de geolocalización denegados por el usuario');
+            break;
+          case error.POSITION_UNAVAILABLE:
+             console.error('Información de ubicación no disponible, intentando con IP geolocation...');
+             // Fallback: usar geolocalización por IP
+             tryIPGeolocation();
+             return; // No mostrar error aún, esperar resultado del fallback
+          case error.TIMEOUT:
+            errorMessage = "La solicitud de ubicación ha expirado. Por favor, intenta nuevamente.";
+            errorTitle = "Tiempo Agotado";
+            console.error('Timeout en la solicitud de geolocalización');
+            break;
+          default:
+            errorMessage = `Error desconocido al obtener la ubicación: ${error.message}`;
+            console.error('Error desconocido:', error.message);
+            break;
+        }
+        
+        setError(errorMessage);
+        setGettingLocation(false);
+        toast({
+          title: errorTitle,
+          description: errorMessage,
+          variant: "destructive",
+        });
+      },
+      options
+    );
   };
 
   // Función para manejar el cambio de imagen
@@ -142,11 +259,68 @@ export function DiagnosisClientPage() {
       
       const utterance = new SpeechSynthesisUtterance(textToSpeak);
       
-      // Configurar la voz en español si está disponible
+      // Configurar la voz en español con prioridad específica
       const voices = window.speechSynthesis.getVoices();
-      const spanishVoice = voices.find(voice => voice.lang.startsWith('es'));
-      if (spanishVoice) {
-        utterance.voice = spanishVoice;
+      console.log('Voces disponibles:', voices.map(v => `${v.name} (${v.lang})`));
+      
+      // Lista de voces preferidas en orden de prioridad
+      const preferredVoices = [
+        'Microsoft Sabina - Spanish (Mexico)',
+        'Microsoft Sabina',
+        'Sabina',
+        'Microsoft Raul - Spanish (Mexico)',
+        'Microsoft Raul',
+        'Raul',
+        'Google español de México',
+        'Google español',
+        'Spanish (Mexico)',
+        'Spanish (Latin America)',
+        'Spanish (Spain)',
+        'es-MX',
+        'es-ES',
+        'es-AR',
+        'es-CO',
+        'es-CL'
+      ];
+      
+      let selectedVoice = null;
+      
+      // Buscar por nombre exacto primero
+      for (const preferredName of preferredVoices) {
+        selectedVoice = voices.find(voice => 
+          voice.name === preferredName || 
+          voice.name.includes(preferredName)
+        );
+        if (selectedVoice) {
+          console.log(`Voz seleccionada por nombre: ${selectedVoice.name} (${selectedVoice.lang})`);
+          break;
+        }
+      }
+      
+      // Si no se encuentra por nombre, buscar por código de idioma
+      if (!selectedVoice) {
+        const spanishLanguageCodes = ['es-MX', 'es-ES', 'es-AR', 'es-CO', 'es-CL', 'es-PE', 'es-VE'];
+        for (const langCode of spanishLanguageCodes) {
+          selectedVoice = voices.find(voice => voice.lang === langCode);
+          if (selectedVoice) {
+            console.log(`Voz seleccionada por código de idioma: ${selectedVoice.name} (${selectedVoice.lang})`);
+            break;
+          }
+        }
+      }
+      
+      // Fallback: cualquier voz que empiece con 'es'
+      if (!selectedVoice) {
+        selectedVoice = voices.find(voice => voice.lang.startsWith('es'));
+        if (selectedVoice) {
+          console.log(`Voz seleccionada como fallback: ${selectedVoice.name} (${selectedVoice.lang})`);
+        }
+      }
+      
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+      } else {
+        console.warn('No se encontró ninguna voz en español disponible');
       }
       
       utterance.rate = 0.9;
@@ -212,22 +386,8 @@ export function DiagnosisClientPage() {
       const data = await response.json();
       console.log('Raw API Data:', data);
 
-      // Obtener nombre de la ubicación usando geocoding inverso
-      let locationName = `${latitude.toFixed(2)}°N, ${longitude.toFixed(2)}°E`;
-      try {
-        const geoResponse = await fetch(
-          `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${latitude.toFixed(4)}&longitude=${longitude.toFixed(4)}&count=1&language=es&format=json`
-        );
-        if (geoResponse.ok) {
-          const geoData = await geoResponse.json();
-          if (geoData.results && geoData.results.length > 0) {
-            const result = geoData.results[0];
-            locationName = `${result.name}${result.admin1 ? ', ' + result.admin1 : ''}${result.country ? ', ' + result.country : ''}`;
-          }
-        }
-      } catch (geoError) {
-        console.log("No se pudo obtener el nombre de la ubicación:", geoError);
-      }
+      // Usar coordenadas como nombre de ubicación
+      const locationName = `${latitude.toFixed(4)}°, ${longitude.toFixed(4)}°`;
 
       // Mapear el código de clima a una descripción
       const getWeatherDescription = (code: number) => {

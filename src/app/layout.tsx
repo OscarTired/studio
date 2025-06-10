@@ -48,14 +48,14 @@ export default function RootLayout({
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-                <SidebarMenuItem>
+                {/* <SidebarMenuItem>
                   <SidebarMenuButton asChild tooltip="Farm Log">
                     <Link href="/farm-log">
                       <BookOpenText />
                       <span>Farm Log</span>
                     </Link>
                   </SidebarMenuButton>
-                </SidebarMenuItem>
+                </SidebarMenuItem> */}
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild tooltip="Weather">
                     <Link href="/weather">

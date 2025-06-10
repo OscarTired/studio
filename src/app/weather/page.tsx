@@ -371,52 +371,143 @@ export default function WeatherPage() {
     }
   };
 
-  // Función para manejar la obtención de ubicación actual desde el navegador
-  const handleGetLocationClick = () => {
-    setGettingLocation(true);
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          // Éxito
-          console.log('Ubicación obtenida:', position.coords);
-          fetchOpenMeteoWeather(
-            position.coords.latitude, 
-            position.coords.longitude, 
-            selectedDate
-          );
-        },
-        (error) => {
-          let mensaje = '';
-          switch(error.code) {
-            case error.PERMISSION_DENIED:
-              mensaje = "Permisos de ubicación denegados. Por favor, habilita los permisos en tu navegador.";
-              break;
-            case error.POSITION_UNAVAILABLE:
-              mensaje = "Información de ubicación no disponible. Verifica tu conexión y servicios de ubicación.";
-              break;
-            case error.TIMEOUT:
-              mensaje = "Tiempo de espera agotado. Intenta nuevamente.";
-              break;
-            default:
-              mensaje = "Error desconocido al obtener ubicación.";
-              break;
-          }
-          console.error('Error de geolocalización:', mensaje);
-          setError(mensaje);
-          setGettingLocation(false);
-          setLoading(false);
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 60000
-        }
-      );
-    } else {
-      setError("La geolocalización no es compatible con este navegador.");
+  // Función fallback para geolocalización por IP
+  const tryIPGeolocation = async () => {
+    try {
+      console.log('Intentando geolocalización por IP...');
+      
+      // Usar ipapi.co que es gratuito y no requiere API key
+      const response = await fetch('https://ipapi.co/json/');
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.latitude && data.longitude) {
+        console.log('Ubicación obtenida por IP:', {
+          lat: data.latitude,
+          lon: data.longitude,
+          city: data.city,
+          country: data.country_name
+        });
+        
+        // Usar la ubicación obtenida por IP para buscar el clima
+        await fetchOpenMeteoWeather(data.latitude, data.longitude, selectedDate);
+        setGettingLocation(false);
+        setError(""); // Limpiar errores previos
+        
+        // Mostrar mensaje informativo sobre la ubicación aproximada
+        console.log(`Ubicación aproximada obtenida: ${data.city}, ${data.country_name}`);
+      } else {
+        throw new Error('No se pudieron obtener coordenadas válidas');
+      }
+    } catch (ipError) {
+      console.error('Error en geolocalización por IP:', ipError);
+      
+      // Si también falla la geolocalización por IP, mostrar error final
+      const errorMessage = "No se pudo obtener la ubicación ni por GPS ni por IP. Verifica tu conexión a internet.";
+      setError(errorMessage);
       setGettingLocation(false);
       setLoading(false);
     }
+  };
+
+  // Función para manejar la obtención de ubicación actual desde el navegador
+  const handleGetLocationClick = () => {
+    console.log('Iniciando solicitud de geolocalización...');
+    console.log('Navegador:', navigator.userAgent);
+    console.log('HTTPS:', window.location.protocol === 'https:');
+    console.log('Localhost:', window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    
+    if (!navigator.geolocation) {
+      const errorMsg = "La geolocalización no es compatible con este navegador.";
+      console.error(errorMsg);
+      setError(errorMsg);
+      setGettingLocation(false);
+      setLoading(false);
+      return;
+    }
+
+    // Verificar permisos antes de solicitar ubicación
+    if ('permissions' in navigator) {
+      navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+        console.log('Estado de permisos de geolocalización:', result.state);
+        if (result.state === 'denied') {
+          const errorMsg = "Los permisos de ubicación están denegados. Por favor, habilítalos en la configuración del navegador.";
+          setError(errorMsg);
+          setGettingLocation(false);
+          setLoading(false);
+          return;
+        }
+      }).catch((err) => {
+        console.warn('No se pudo verificar permisos:', err);
+      });
+    }
+
+    setGettingLocation(true);
+    
+    const options = {
+      enableHighAccuracy: false, // Cambiar a false para mejor compatibilidad
+      timeout: 15000, // Aumentar timeout
+      maximumAge: 300000, // 5 minutos
+    };
+    
+    console.log('Opciones de geolocalización:', options);
+    
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        console.log('Ubicación obtenida exitosamente:', {
+          lat: position.coords.latitude,
+          lon: position.coords.longitude,
+          accuracy: position.coords.accuracy
+        });
+        
+        fetchOpenMeteoWeather(
+          position.coords.latitude, 
+          position.coords.longitude, 
+          selectedDate
+        );
+        setGettingLocation(false);
+        setError(""); // Limpiar errores previos
+      },
+      (error) => {
+        console.error('Error de geolocalización:', error);
+        
+        let errorMessage = "No se pudo obtener la ubicación. ";
+        
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            errorMessage = "Permisos de ubicación denegados. Por favor, habilita los permisos de ubicación en tu navegador.";
+            console.error('Permisos de geolocalización denegados por el usuario');
+            setError(errorMessage);
+            setGettingLocation(false);
+            setLoading(false);
+            break;
+          case error.POSITION_UNAVAILABLE:
+            console.error('Información de ubicación no disponible, intentando con IP geolocation...');
+            // Fallback: usar geolocalización por IP
+            tryIPGeolocation();
+            return; // No mostrar error aún, esperar resultado del fallback
+          case error.TIMEOUT:
+            errorMessage = "La solicitud de ubicación ha expirado. Por favor, intenta nuevamente.";
+            console.error('Timeout en la solicitud de geolocalización');
+            setError(errorMessage);
+            setGettingLocation(false);
+            setLoading(false);
+            break;
+          default:
+            errorMessage = `Error desconocido al obtener la ubicación: ${error.message}`;
+            console.error('Error desconocido:', error.message);
+            setError(errorMessage);
+            setGettingLocation(false);
+            setLoading(false);
+            break;
+        }
+      },
+      options
+    );
   };
 
   // Función para manejar la búsqueda manual de ubicación

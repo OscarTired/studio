@@ -25,6 +25,28 @@ const MapSelector: React.FC<MapSelectorProps> = ({
   const [isMapReady, setIsMapReady] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<string>('');
 
+  // Efecto para redimensionar el mapa cuando el contenedor cambie
+  useEffect(() => {
+    const handleResize = () => {
+      if (mapInstanceRef.current && isMapReady) {
+        setTimeout(() => {
+          mapInstanceRef.current.invalidateSize();
+        }, 100);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    
+    // También redimensionar cuando el mapa esté listo
+    if (isMapReady) {
+      handleResize();
+    }
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [isMapReady]);
+
   useEffect(() => {
     // Cargar Leaflet dinámicamente
     const loadLeaflet = async () => {
@@ -52,8 +74,21 @@ const MapSelector: React.FC<MapSelectorProps> = ({
 
       const L = window.L;
       
-      // Crear el mapa
-      const map = L.map(mapRef.current).setView([initialCenter.lat, initialCenter.lon], 6);
+      // Verificar que el contenedor tenga dimensiones
+      const container = mapRef.current;
+      if (!container.offsetWidth || !container.offsetHeight) {
+        // Si el contenedor no tiene dimensiones, esperar un poco más
+        setTimeout(() => initMap(), 100);
+        return;
+      }
+      
+      // Crear el mapa sin setView inicial
+      const map = L.map(mapRef.current, {
+        preferCanvas: true,
+        zoomControl: true,
+        center: [initialCenter.lat, initialCenter.lon],
+        zoom: 6
+      });
       
       // Agregar tiles de OpenStreetMap
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -113,7 +148,25 @@ const MapSelector: React.FC<MapSelectorProps> = ({
       });
 
       mapInstanceRef.current = map;
-      setIsMapReady(true);
+      
+      // Esperar a que el mapa esté completamente cargado
+      map.whenReady(() => {
+        setIsMapReady(true);
+        
+        // Forzar redimensionamiento del mapa después de que esté listo
+        setTimeout(() => {
+          if (map && map.getContainer()) {
+            map.invalidateSize();
+          }
+        }, 100);
+        
+        // Redimensionamiento adicional para asegurar que se muestre correctamente
+        setTimeout(() => {
+          if (map && map.getContainer()) {
+            map.invalidateSize();
+          }
+        }, 500);
+      });
     };
 
     loadLeaflet();
@@ -128,31 +181,32 @@ const MapSelector: React.FC<MapSelectorProps> = ({
   }, [initialCenter, onLocationSelect]);
 
   return (
-    <div className="h-full w-full relative">
+    <div className="h-full w-full relative overflow-hidden rounded-lg" style={{height: '100%', width: '100%', maxHeight: '100%'}}>
       <div 
         ref={mapRef} 
         className="h-full w-full rounded-lg"
-        style={{ minHeight: '300px' }}
+        style={{ height: '100%', width: '100%', minHeight: '300px', maxHeight: '100%' }}
       />
       
       {!isMapReady && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-lg">
           <div className="text-center">
             <MapPin className="w-8 h-8 animate-pulse mx-auto mb-2 text-gray-400" />
-            <p className="text-gray-500">Cargando mapa...</p>
+            <p className="text-gray-500 text-sm">Cargando mapa...</p>
           </div>
         </div>
       )}
       
       {selectedLocation && (
-        <div className="absolute top-2 left-2 bg-white px-3 py-2 rounded-lg shadow-md border max-w-xs">
-          <p className="text-sm font-medium text-gray-700">Ubicación seleccionada:</p>
-          <p className="text-xs text-gray-600">{selectedLocation}</p>
+        <div className="absolute top-2 left-2 bg-white px-2 sm:px-3 py-1 sm:py-2 rounded-lg shadow-md border max-w-[calc(100%-1rem)] sm:max-w-xs">
+          <p className="text-xs sm:text-sm font-medium text-gray-700">Ubicación seleccionada:</p>
+          <p className="text-xs text-gray-600 truncate">{selectedLocation}</p>
         </div>
       )}
       
-      <div className="absolute bottom-2 left-2 bg-black bg-opacity-70 text-white px-2 py-1 rounded text-xs">
-        Click en el mapa para seleccionar ubicación
+      <div className="absolute bottom-2 left-2 bg-black bg-opacity-70 text-white px-2 py-1 rounded text-xs max-w-[calc(100%-1rem)]">
+        <span className="hidden sm:inline">Click en el mapa para seleccionar ubicación</span>
+        <span className="sm:hidden">Toca para seleccionar</span>
       </div>
     </div>
   );

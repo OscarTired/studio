@@ -152,14 +152,68 @@ export default function WeatherPage() {
     const utterance = new SpeechSynthesisUtterance(text);
     setCurrentUtterance(utterance);
     
-    // Configurar la voz en español
+    // Configurar la voz en español con prioridad específica
     const voices = window.speechSynthesis.getVoices();
-    const spanishVoice = voices.find(voice => 
-      voice.lang.includes('es') || voice.lang.includes('ES')
-    );
+    console.log('Voces disponibles:', voices.map(v => `${v.name} (${v.lang})`));
     
-    if (spanishVoice) {
-      utterance.voice = spanishVoice;
+    // Lista de voces preferidas en orden de prioridad
+    const preferredVoices = [
+      'Microsoft Sabina - Spanish (Mexico)',
+      'Microsoft Sabina',
+      'Sabina',
+      'Microsoft Raul - Spanish (Mexico)',
+      'Microsoft Raul',
+      'Raul',
+      'Google español de México',
+      'Google español',
+      'Spanish (Mexico)',
+      'Spanish (Latin America)',
+      'Spanish (Spain)',
+      'es-MX',
+      'es-ES',
+      'es-AR',
+      'es-CO',
+      'es-CL'
+    ];
+    
+    let selectedVoice = null;
+    
+    // Buscar por nombre exacto primero
+    for (const preferredName of preferredVoices) {
+      selectedVoice = voices.find(voice => 
+        voice.name === preferredName || 
+        voice.name.includes(preferredName)
+      );
+      if (selectedVoice) {
+        console.log(`Voz seleccionada por nombre: ${selectedVoice.name} (${selectedVoice.lang})`);
+        break;
+      }
+    }
+    
+    // Si no se encuentra por nombre, buscar por código de idioma
+    if (!selectedVoice) {
+      const spanishLanguageCodes = ['es-MX', 'es-ES', 'es-AR', 'es-CO', 'es-CL', 'es-PE', 'es-VE'];
+      for (const langCode of spanishLanguageCodes) {
+        selectedVoice = voices.find(voice => voice.lang === langCode);
+        if (selectedVoice) {
+          console.log(`Voz seleccionada por código de idioma: ${selectedVoice.name} (${selectedVoice.lang})`);
+          break;
+        }
+      }
+    }
+    
+    // Fallback: cualquier voz que empiece con 'es'
+    if (!selectedVoice) {
+      selectedVoice = voices.find(voice => voice.lang.startsWith('es'));
+      if (selectedVoice) {
+        console.log(`Voz seleccionada como fallback: ${selectedVoice.name} (${selectedVoice.lang})`);
+      }
+    }
+    
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
+    } else {
+      console.warn('No se encontró ninguna voz en español disponible');
     }
     
     utterance.lang = 'es-ES';
@@ -664,20 +718,23 @@ export default function WeatherPage() {
 
       {/* Selector de mapa en modal */}
       {showMapSelector && (
-        <div className="fixed top-[-25] left-0 right-0 bottom-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[50] p-4">
-          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-5xl max-h-[90vh] mx-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold text-gray-800">Selecciona una ubicación</h3>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[99999]" style={{position: 'fixed', inset: 0, width: '100vw', height: '100vh', padding: 0, margin: 0}}>
+<div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-4 sm:mx-8 flex flex-col relative" style={{height: 'auto', maxHeight: '70vh', minHeight: '500px'}}>
+            <div className="flex justify-between items-center p-4 sm:p-6 border-b flex-shrink-0">
+              <h3 className="text-lg sm:text-xl font-semibold text-gray-800">Selecciona una ubicación</h3>
               <Button 
                 variant="outline" 
                 onClick={() => setShowMapSelector(false)}
-                className="hover:bg-gray-100"
+                className="hover:bg-gray-100 shrink-0"
+                size="sm"
               >
                 Cerrar
               </Button>
             </div>
-            <div className="h-[500px] w-full">
-              <MapSelector onLocationSelect={handleMapLocationSelect} />
+            <div className="flex-1 p-2 sm:p-6 overflow-hidden">
+<div className="h-full w-full" style={{height: '400px', minHeight: '300px', maxHeight: 'calc(70vh - 120px)'}}>
+                <MapSelector onLocationSelect={handleMapLocationSelect} />
+              </div>
             </div>
           </div>
         </div>
@@ -769,23 +826,24 @@ export default function WeatherPage() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-xl font-semibold">Recomendaciones Agrícolas</h3>
                 {speechSupported && recommendations && (
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <Button
                       onClick={speakRecommendations}
                       disabled={isSpeaking || loadingRecommendations}
                       variant="outline"
                       size="sm"
-                      className="flex items-center gap-2"
+                      className="flex items-center justify-center gap-2 w-full sm:w-auto min-w-0"
                     >
                       {isSpeaking ? (
                         <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Leyendo...
+                          <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                          <span className="hidden xs:inline">Leyendo...</span>
+                          <span className="xs:hidden">...</span>
                         </>
                       ) : (
                         <>
-                          <Volume2 className="w-4 h-4" />
-                          Escuchar
+                          <Volume2 className="w-4 h-4 flex-shrink-0" />
+                          <span className="hidden xs:inline">Escuchar</span>
                         </>
                       )}
                     </Button>
@@ -794,10 +852,10 @@ export default function WeatherPage() {
                         onClick={stopSpeaking}
                         variant="outline"
                         size="sm"
-                        className="flex items-center gap-2"
+                        className="flex items-center justify-center gap-2 w-full sm:w-auto min-w-0"
                       >
-                        <VolumeX className="w-4 h-4" />
-                        Detener
+                        <VolumeX className="w-4 h-4 flex-shrink-0" />
+                        <span className="hidden xs:inline">Detener</span>
                       </Button>
                     )}
                   </div>

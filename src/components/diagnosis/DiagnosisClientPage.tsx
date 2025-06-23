@@ -2,7 +2,7 @@
 "use client";
 
 import type { DiagnoseCropDiseaseInput, DiagnoseCropDiseaseOutput } from "@/ai/flows/diagnose-crop-disease";
-import { diagnoseCropDisease } from "@/ai/flows/diagnose-crop-disease";
+import type { DiagnosisChatInput } from "@/ai/flows/diagnosis-chat";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, type SubmitHandler } from "react-hook-form";
 import { z } from "zod";
@@ -14,8 +14,9 @@ import Image from "next/image";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { UploadCloud, Info, CheckCircle, AlertTriangle, Thermometer, ShieldCheck, ListChecks, Volume2, X, Camera, Play, Square } from "lucide-react";
+import { UploadCloud, Info, CheckCircle, AlertTriangle, Thermometer, ShieldCheck, ListChecks, Volume2, X, Camera, Play, Square, MessageCircle, Send, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { usePersistentChat } from "@/hooks/use-persistent-chat";
 
 // Esquema de validación del formulario en español
 const diagnosisFormSchema = z.object({
@@ -32,7 +33,11 @@ const diagnosisFormSchema = z.object({
 
 type DiagnosisFormValues = z.infer<typeof diagnosisFormSchema>;
 
-export function DiagnosisClientPage() { 
+interface DiagnosisClientPageProps {
+  sessionId?: string;
+}
+
+export function DiagnosisClientPage({ sessionId }: DiagnosisClientPageProps = {}) { 
   const [diagnosisResult, setDiagnosisResult] = useState<DiagnoseCropDiseaseOutput | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +48,46 @@ export function DiagnosisClientPage() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlayingRecommendations, setIsPlayingRecommendations] = useState(false);
   const [currentUtterance, setCurrentUtterance] = useState<SpeechSynthesisUtterance | null>(null);
+  
+  // Estados para el chat de diagnóstico
+  const [showChat, setShowChat] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  
+  // Hook de chat persistente
+  const {
+    messages: chatMessages,
+    loading: chatLoading,
+    addMessage,
+    addMessages,
+    clearChat
+  } = usePersistentChat('diagnosis', sessionId);
+  const [lastWeatherData, setLastWeatherData] = useState<any>(null);
+
+  // Limpiar síntesis de voz cuando el componente se desmonta o durante Fast Refresh
+  useEffect(() => {
+    return () => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  // Manejar interrupciones durante el desarrollo (Fast Refresh)
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   const form = useForm<DiagnosisFormValues>({
     resolver: zodResolver(diagnosisFormSchema),
@@ -244,6 +289,67 @@ export function DiagnosisClientPage() {
     }
   };
 
+  // Función para obtener la voz preferida en español
+  const getPreferredSpanishVoice = () => {
+    const voices = window.speechSynthesis.getVoices();
+    
+    // Lista de voces preferidas en orden de prioridad
+    const preferredVoices = [
+      'Microsoft Sabina - Spanish (Mexico)',
+      'Microsoft Sabina',
+      'Sabina',
+      'Microsoft Raul - Spanish (Mexico)',
+      'Microsoft Raul',
+      'Raul',
+      'Google español de México',
+      'Google español',
+      'Spanish (Mexico)',
+      'Spanish (Latin America)',
+      'Spanish (Spain)',
+      'es-MX',
+      'es-ES',
+      'es-AR',
+      'es-CO',
+      'es-CL'
+    ];
+    
+    let selectedVoice = null;
+    
+    // Buscar por nombre exacto primero
+    for (const preferredName of preferredVoices) {
+      selectedVoice = voices.find(voice => 
+        voice.name === preferredName || 
+        voice.name.includes(preferredName)
+      );
+      if (selectedVoice) {
+        console.log(`Voz seleccionada por nombre: ${selectedVoice.name} (${selectedVoice.lang})`);
+        break;
+      }
+    }
+    
+    // Si no se encuentra por nombre, buscar por código de idioma
+    if (!selectedVoice) {
+      const spanishLanguageCodes = ['es-MX', 'es-ES', 'es-AR', 'es-CO', 'es-CL', 'es-PE', 'es-VE'];
+      for (const langCode of spanishLanguageCodes) {
+        selectedVoice = voices.find(voice => voice.lang === langCode);
+        if (selectedVoice) {
+          console.log(`Voz seleccionada por código de idioma: ${selectedVoice.name} (${selectedVoice.lang})`);
+          break;
+        }
+      }
+    }
+    
+    // Fallback: cualquier voz que empiece con 'es'
+    if (!selectedVoice) {
+      selectedVoice = voices.find(voice => voice.lang.startsWith('es'));
+      if (selectedVoice) {
+        console.log(`Voz seleccionada como fallback: ${selectedVoice.name} (${selectedVoice.lang})`);
+      }
+    }
+    
+    return selectedVoice;
+  };
+
   // Función para reproducir todo el resultado del diagnóstico con texto a voz
   const speakRecommendations = (recommendations: string[]) => {
     if ('speechSynthesis' in window && diagnosisResult) {
@@ -259,68 +365,10 @@ export function DiagnosisClientPage() {
       
       const utterance = new SpeechSynthesisUtterance(textToSpeak);
       
-      // Configurar la voz en español con prioridad específica
-      const voices = window.speechSynthesis.getVoices();
-      console.log('Voces disponibles:', voices.map(v => `${v.name} (${v.lang})`));
-      
-      // Lista de voces preferidas en orden de prioridad
-      const preferredVoices = [
-        'Microsoft Sabina - Spanish (Mexico)',
-        'Microsoft Sabina',
-        'Sabina',
-        'Microsoft Raul - Spanish (Mexico)',
-        'Microsoft Raul',
-        'Raul',
-        'Google español de México',
-        'Google español',
-        'Spanish (Mexico)',
-        'Spanish (Latin America)',
-        'Spanish (Spain)',
-        'es-MX',
-        'es-ES',
-        'es-AR',
-        'es-CO',
-        'es-CL'
-      ];
-      
-      let selectedVoice = null;
-      
-      // Buscar por nombre exacto primero
-      for (const preferredName of preferredVoices) {
-        selectedVoice = voices.find(voice => 
-          voice.name === preferredName || 
-          voice.name.includes(preferredName)
-        );
-        if (selectedVoice) {
-          console.log(`Voz seleccionada por nombre: ${selectedVoice.name} (${selectedVoice.lang})`);
-          break;
-        }
-      }
-      
-      // Si no se encuentra por nombre, buscar por código de idioma
-      if (!selectedVoice) {
-        const spanishLanguageCodes = ['es-MX', 'es-ES', 'es-AR', 'es-CO', 'es-CL', 'es-PE', 'es-VE'];
-        for (const langCode of spanishLanguageCodes) {
-          selectedVoice = voices.find(voice => voice.lang === langCode);
-          if (selectedVoice) {
-            console.log(`Voz seleccionada por código de idioma: ${selectedVoice.name} (${selectedVoice.lang})`);
-            break;
-          }
-        }
-      }
-      
-      // Fallback: cualquier voz que empiece con 'es'
-      if (!selectedVoice) {
-        selectedVoice = voices.find(voice => voice.lang.startsWith('es'));
-        if (selectedVoice) {
-          console.log(`Voz seleccionada como fallback: ${selectedVoice.name} (${selectedVoice.lang})`);
-        }
-      }
-      
+      // Configurar la voz en español
+      const selectedVoice = getPreferredSpanishVoice();
       if (selectedVoice) {
         utterance.voice = selectedVoice;
-      } else {
-        console.warn('No se encontró ninguna voz en español disponible');
       }
       
       utterance.rate = 0.9;
@@ -337,14 +385,17 @@ export function DiagnosisClientPage() {
       };
       
       utterance.onerror = (event) => {
-        if (event.error !== 'canceled' && event.error !== 'interrupted') {
-          setError('Error al reproducir el audio del diagnóstico');
-        }
-        setIsPlayingRecommendations(false);
-        setCurrentUtterance(null);
-      };
+          // Solo mostrar error si no fue una cancelación manual
+          if (event.error !== 'canceled' && event.error !== 'interrupted') {
+            console.error('Error en síntesis de voz:', event.error);
+            setError('Error al reproducir el audio del diagnóstico');
+          }
+          setIsPlayingRecommendations(false);
+          setCurrentUtterance(null);
+        };
       
       setCurrentUtterance(utterance);
+      setIsPlayingRecommendations(true);
       window.speechSynthesis.speak(utterance);
     } else {
       setError('Tu navegador no soporta la síntesis de voz');
@@ -357,6 +408,85 @@ export function DiagnosisClientPage() {
       window.speechSynthesis.cancel();
       setIsPlayingRecommendations(false);
       setCurrentUtterance(null);
+    }
+  };
+
+
+
+  // Función para enviar mensaje en el chat de diagnóstico
+  const handleSendMessage = async () => {
+    if (!chatInput.trim() || !diagnosisResult || !location) return;
+
+    const userMessage = chatInput.trim();
+    setChatInput('');
+
+    try {
+      const chatInputData: DiagnosisChatInput = {
+        message: userMessage,
+        diagnosisContext: {
+          cropType: form.getValues('cropType'),
+          diseaseName: diagnosisResult.diseaseName,
+          confidence: diagnosisResult.confidence * 100,
+          symptoms: diagnosisResult.symptoms,
+          recommendations: diagnosisResult.recommendations,
+          location: `${location.lat.toFixed(4)}°, ${location.lon.toFixed(4)}°`,
+          coordinates: location,
+          weatherData: {
+            temperature: lastWeatherData?.temperature || 0,
+            tempHigh: lastWeatherData?.tempHigh || 0,
+            tempLow: lastWeatherData?.tempLow || 0,
+            humidity: lastWeatherData?.humidity || 0,
+            windSpeed: lastWeatherData?.windSpeed || 0,
+            condition: lastWeatherData?.condition || 'Desconocido',
+          },
+          date: new Date().toISOString(),
+        },
+        chatHistory: chatMessages.slice(-10).map(msg => ({
+          role: msg.role,
+          content: `${msg.role === 'user' ? 'Usuario' : 'Asistente'}: ${msg.content}`
+        })), // Mantener solo los últimos 10 mensajes para contexto
+      };
+
+      const response = await fetch('/api/diagnosis-chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(chatInputData),
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to get chat response');
+        }
+        
+        const chatResponse = await response.json();
+      
+      // Usar el hook para agregar ambos mensajes en una sola operación
+      // Agregar un pequeño delay para asegurar que el timestamp sea posterior al del usuario
+      await new Promise(resolve => setTimeout(resolve, 1));
+      await addMessages([
+        { role: 'user', content: userMessage },
+        { role: 'assistant', content: chatResponse.response }
+      ]);
+    } catch (error) {
+      console.error('Error en el chat de diagnóstico:', error);
+      // Agregar un pequeño delay para asegurar que el timestamp sea posterior al del usuario
+      await new Promise(resolve => setTimeout(resolve, 1));
+      await addMessages([
+        { role: 'user', content: userMessage },
+        { 
+          role: 'assistant', 
+          content: 'Lo siento, hubo un error al procesar tu mensaje. Por favor, inténtalo de nuevo.' 
+        }
+      ]);
+    }
+  };
+
+  // Función para manejar Enter en el input del chat
+  const handleChatKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
     }
   };
 
@@ -463,6 +593,9 @@ export function DiagnosisClientPage() {
         if (!weatherData?.location || !weatherData?.coordinates) {
           throw new Error('Datos climáticos incompletos recibidos');
         }
+        
+        // Guardar datos climáticos para el chat
+        setLastWeatherData(weatherData);
 
         // Preparar el input para el flujo de diagnóstico
         const input: DiagnoseCropDiseaseInput = {
@@ -491,7 +624,19 @@ export function DiagnosisClientPage() {
 
         console.log('Input para diagnóstico:', input); // Debugging log
 
-        const result = await diagnoseCropDisease(input);
+        const response = await fetch('/api/diagnosis', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(input),
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to get diagnosis');
+        }
+        
+        const result = await response.json();
         setDiagnosisResult(result);
         toast({
           title: "Diagnóstico Completo",
@@ -525,7 +670,7 @@ export function DiagnosisClientPage() {
             <ShieldCheck className="w-8 h-8" /> Diagnóstico de Cultivos
           </CardTitle>
           <CardDescription className="text-primary-foreground/80 mt-1">
-            Utilice nuestra herramienta de Inteligencia Artificial para identificar problemas en sus cultivos.
+            Utilice nuestra herramienta con Inteligencia Artificial para identificar problemas en sus cultivos.
             Suba una imagen clara y bríndenos algunos detalles.
           </CardDescription>
         </CardHeader>
@@ -739,7 +884,90 @@ export function DiagnosisClientPage() {
                         Puedes escuchar el diagnóstico completo aquí.
                       </p>
                     </div>
-                  )}      
+                  )}
+
+            {/* Chat de Diagnóstico */}
+            <div className="mt-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">Chat de Diagnóstico</h3>
+                <Button
+                  onClick={() => setShowChat(!showChat)}
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-2"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  {showChat ? 'Ocultar Chat' : 'Abrir Chat'}
+                </Button>
+              </div>
+              
+              {showChat && (
+                <Card className="border-2 border-dashed border-gray-300">
+                  <CardContent className="p-4">
+                    {/* Área de mensajes */}
+                    <div className="h-64 overflow-y-auto mb-4 p-3 bg-gray-50 rounded-lg">
+                      {chatMessages.length === 0 ? (
+                        <div className="text-center text-gray-500 mt-20">
+                          <MessageCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                          <p>¡Hola! Puedes preguntarme cualquier cosa sobre el diagnóstico, tratamientos, prevención o manejo de la enfermedad identificada.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {chatMessages.map((message, index) => (
+                            <div
+                              key={index}
+                              className={`flex ${
+                                message.role === 'user' ? 'justify-end' : 'justify-start'
+                              }`}
+                            >
+                              <div
+                                className={`max-w-[80%] p-3 rounded-lg ${
+                                  message.role === 'user'
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-white border border-gray-200'
+                                }`}
+                              >
+                                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                              </div>
+                            </div>
+                          ))}
+                          {chatLoading && (
+                            <div className="flex justify-start">
+                              <div className="bg-white border border-gray-200 p-3 rounded-lg">
+                                <div className="flex items-center gap-2">
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                  <span className="text-sm text-gray-500">Escribiendo...</span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Input para escribir mensajes */}
+                    <div className="flex gap-2">
+                      <Input
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        onKeyPress={handleChatKeyPress}
+                        placeholder="Escribe tu pregunta sobre el diagnóstico, tratamientos o prevención..."
+                        disabled={chatLoading}
+                        className="flex-1"
+                      />
+                      <Button
+                        onClick={handleSendMessage}
+                        disabled={!chatInput.trim() || chatLoading}
+                        size="sm"
+                        className="px-3"
+                      >
+                        <Send className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           </CardContent>
           <CardFooter className="text-sm text-muted-foreground">
              <p>Este diagnóstico es una herramienta de apoyo. Para decisiones cruciales, consulte siempre a un agrónomo local.</p>

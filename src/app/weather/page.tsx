@@ -4,16 +4,17 @@
 
 // Importación de componentes y estilos necesarios
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { generateWeatherBasedRecommendations } from "@/ai/flows/weather-based-recommendations";
+import type { WeatherChatInput } from "@/ai/flows/weather-chat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useEffect, useState } from "react";
-import { MapPin, Thermometer, Wind, Droplets, Sun, Cloud, CloudRain, CloudSnow, Zap, Loader2, WifiOff, Search, Calendar, Map, CloudDrizzle, Cloudy, SunMedium, CloudLightning, CloudFog, Snowflake, SunDim, ThermometerSun, ThermometerSnowflake, Volume2, VolumeX } from "lucide-react";
+import { MapPin, Thermometer, Wind, Droplets, Sun, Cloud, CloudRain, CloudSnow, Zap, Loader2, WifiOff, Search, Calendar, Map, CloudDrizzle, Cloudy, SunMedium, CloudLightning, CloudFog, Snowflake, SunDim, ThermometerSun, ThermometerSnowflake, Volume2, VolumeX, MessageCircle, Send } from "lucide-react";
 import Image from "next/image";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import dynamic from 'next/dynamic';
+import { usePersistentChat } from "@/hooks/use-persistent-chat";
 
 // Importación del mapa de forma dinámica para evitar problemas de SSR
 const MapSelector = dynamic(() => import('../../components/MapSelector'), { 
@@ -134,6 +135,19 @@ export default function WeatherPage() {
   const [speechSupported, setSpeechSupported] = useState(false);
   const [currentUtterance, setCurrentUtterance] = useState<SpeechSynthesisUtterance | null>(null);
 
+  // Estados para el chat
+  const [showChat, setShowChat] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  
+  // Hook de chat persistente
+  const {
+    messages: chatMessages,
+    loading: chatLoading,
+    addMessage,
+    addMessages,
+    clearChat
+  } = usePersistentChat('weather');
+
   // Verificar si el navegador soporta Web Speech API
   useEffect(() => {
     setSpeechSupported('speechSynthesis' in window);
@@ -243,6 +257,76 @@ export default function WeatherPage() {
     window.speechSynthesis.cancel();
     setIsSpeaking(false);
     setCurrentUtterance(null);
+  };
+
+  // Función para enviar mensaje en el chat
+  const handleSendMessage = async () => {
+    if (!chatInput.trim() || !weather || !recommendations) return;
+
+    const userMessage = chatInput.trim();
+    setChatInput('');
+
+    try {
+       const chatInputData: WeatherChatInput = {
+         message: userMessage,
+         weatherContext: {
+           location: weather.location,
+           coordinates: weather.coordinates,
+           date: weather.date.toISOString(),
+           tempHigh: weather.tempHigh,
+           tempLow: weather.tempLow,
+           humidity: weather.humidity,
+           windSpeed: weather.windSpeed,
+           condition: weather.condition,
+           recommendations: recommendations,
+         },
+         chatHistory: chatMessages.slice(-10).map(msg => ({
+            role: msg.role,
+            content: `${msg.role === 'user' ? 'Usuario' : 'Asistente'}: ${msg.content}`
+          })), // Mantener solo los últimos 10 mensajes para contexto
+       };
+
+       const response = await fetch('/api/weather-chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(chatInputData),
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to get weather chat response');
+        }
+        
+        const chatResponse = await response.json();
+      
+      // Usar el hook para agregar ambos mensajes en una sola operación
+      // Agregar un pequeño delay para asegurar que el timestamp sea posterior al del usuario
+      await new Promise(resolve => setTimeout(resolve, 1));
+      await addMessages([
+        { role: 'user', content: userMessage },
+        { role: 'assistant', content: chatResponse.response }
+      ]);
+    } catch (error) {
+      console.error('Error en el chat:', error);
+      // Agregar un pequeño delay para asegurar que el timestamp sea posterior al del usuario
+      await new Promise(resolve => setTimeout(resolve, 1));
+      await addMessages([
+        { role: 'user', content: userMessage },
+        { 
+          role: 'assistant', 
+          content: 'Lo siento, hubo un error al procesar tu mensaje. Por favor, inténtalo de nuevo.' 
+        }
+      ]);
+    }
+  };
+
+  // Función para manejar Enter en el input del chat
+  const handleChatKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
   };
 
   // Función para obtener datos clima usando Open-Meteo API
@@ -415,7 +499,19 @@ export default function WeatherPage() {
         condition: weatherData.condition,
       };
 
-      const result = await generateWeatherBasedRecommendations(input);
+      const response = await fetch('/api/weather-recommendations', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(input),
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to get weather recommendations');
+        }
+        
+        const result = await response.json();
       setRecommendations(result.recommendations);
     } catch (err) {
       console.error("Error fetching recommendations:", err);
@@ -873,6 +969,91 @@ export default function WeatherPage() {
                 <p>No hay recomendaciones disponibles.</p>
               )}
             </div>
+
+            {/* Chat con Gemini */}
+            {recommendations && (
+              <div className="mt-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-semibold">Chat Agrícola</h3>
+                  <Button
+                    onClick={() => setShowChat(!showChat)}
+                    variant="outline"
+                    size="sm"
+                    className="flex items-center gap-2"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    {showChat ? 'Ocultar Chat' : 'Abrir Chat'}
+                  </Button>
+                </div>
+                
+                {showChat && (
+                  <Card className="border-2 border-dashed border-gray-300">
+                    <CardContent className="p-4">
+                      {/* Área de mensajes */}
+                      <div className="h-64 overflow-y-auto mb-4 p-3 bg-gray-50 rounded-lg">
+                        {chatMessages.length === 0 ? (
+                          <div className="text-center text-gray-500 mt-20">
+                            <MessageCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                            <p>¡Hola! Puedes preguntarme cualquier cosa sobre las recomendaciones climáticas o agricultura en general.</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {chatMessages.map((message, index) => (
+                              <div
+                                key={index}
+                                className={`flex ${
+                                  message.role === 'user' ? 'justify-end' : 'justify-start'
+                                }`}
+                              >
+                                <div
+                                  className={`max-w-[80%] p-3 rounded-lg ${
+                                    message.role === 'user'
+                                      ? 'bg-blue-500 text-white'
+                                      : 'bg-white border border-gray-200'
+                                  }`}
+                                >
+                                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                                </div>
+                              </div>
+                            ))}
+                            {chatLoading && (
+                              <div className="flex justify-start">
+                                <div className="bg-white border border-gray-200 p-3 rounded-lg">
+                                  <div className="flex items-center gap-2">
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    <span className="text-sm text-gray-500">Escribiendo...</span>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Input para escribir mensajes */}
+                      <div className="flex gap-2">
+                        <Input
+                          value={chatInput}
+                          onChange={(e) => setChatInput(e.target.value)}
+                          onKeyPress={handleChatKeyPress}
+                          placeholder="Escribe tu pregunta sobre agricultura o clima..."
+                          disabled={chatLoading}
+                          className="flex-1"
+                        />
+                        <Button
+                          onClick={handleSendMessage}
+                          disabled={!chatInput.trim() || chatLoading}
+                          size="sm"
+                          className="px-3"
+                        >
+                          <Send className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       ) : (

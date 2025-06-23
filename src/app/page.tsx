@@ -3,11 +3,16 @@
 import { DiagnosisClientPage } from '@/components/diagnosis/DiagnosisClientPage';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 
-export default function DiagnoseCropPage() {
+function SearchParamsWrapper() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get('sessionId') || undefined;
   
+  return <DiagnosisClientPage sessionId={sessionId} />;
+}
+
+export default function DiagnoseCropPage() {
   return (
     <div className="container mx-auto py-8">
       <Card className="w-full max-w-2xl mx-auto shadow-lg">
@@ -18,7 +23,9 @@ export default function DiagnoseCropPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <DiagnosisClientPage sessionId={sessionId} />
+          <Suspense fallback={<div>Cargando...</div>}>
+            <SearchParamsWrapper />
+          </Suspense>
         </CardContent>
       </Card>
     </div>

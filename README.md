@@ -3,7 +3,7 @@
 **Plataforma inteligente para la agricultura moderna con integración de IA de Google (Gemini)**
 
 Agrivision es una aplicación web avanzada que revoluciona la agricultura mediante el uso de inteligencia artificial, proporcionando diagnósticos precisos de cultivos, recomendaciones personalizadas y herramientas de gestión agrícola.
-
+[🚀 Ir al sitio](https://agro-henna-six.vercel.app/)
 ## ✨ Características Principales
 
 ### 🔍 Diagnóstico Inteligente de Cultivos
